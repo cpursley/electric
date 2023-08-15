@@ -95,4 +95,10 @@ defmodule Electric.Postgres.Extension.SchemaCache.Global do
       SchemaCache.electrified_tables(pid)
     end)
   end
+
+  def table_electrified?({schema, name}) do
+    with_instance(fn pid ->
+      SchemaCache.table_electrified?(pid, {schema, name})
+    end)
+  end
 end

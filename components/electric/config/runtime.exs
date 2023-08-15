@@ -116,6 +116,10 @@ if config_env() == :prod do
 
   config :electric, Electric.Replication.OffsetStorage,
     file: System.get_env("OFFSET_STORAGE_FILE", default_offset_storage_path)
+
+  proxy_port = System.get_env("PG_PROXY_PORT", "65433") |> String.to_integer()
+
+  config :electric, Electric.Postgres.Proxy, port: proxy_port
 else
   Code.require_file("runtime.#{config_env()}.exs", __DIR__)
 end

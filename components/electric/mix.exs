@@ -65,7 +65,9 @@ defmodule Electric.MixProject do
       {:bandit, "~> 1.0-pre"},
       {:thousand_island, "~> 1.0-pre"},
       {:mint_web_socket, "~> 1.0"},
-      {:mint, "~> 1.5"}
+      {:mint, "~> 1.5"},
+      {:pg_protocol, github: "electric-sql/pg_protocol"},
+      {:postgrex, "~> 0.17"}
     ]
   end
 

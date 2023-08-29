@@ -15,6 +15,7 @@ defmodule Electric.Postgres.Extension.SchemaLoader do
   @type oid_loader() :: (rel_type(), schema(), name() -> oid_result())
   @type table() :: Electric.Postgres.Replication.Table.t()
   @type t() :: {module(), state()}
+  @type tx_fk_row() :: %{binary() => integer() | binary()}
 
   @callback connect(Connectors.config(), Keyword.t()) :: {:ok, state()}
   @callback load(state()) :: {:ok, version(), Schema.t()}
@@ -30,6 +31,7 @@ defmodule Electric.Postgres.Extension.SchemaLoader do
   @callback electrified_tables(state()) :: {:ok, [table()]} | {:error, term()}
   @callback table_electrified?(state(), relation()) :: {:ok, boolean()} | {:error, term()}
   @callback index_electrified?(state(), relation()) :: {:ok, boolean()} | {:error, term()}
+  @callback tx_version(state(), tx_fk_row()) :: {:ok, version()} | {:error, term()}
 
   @default_backend {__MODULE__.Epgsql, []}
 
@@ -97,5 +99,9 @@ defmodule Electric.Postgres.Extension.SchemaLoader do
 
   def index_electrified?({module, state}, relation) do
     module.index_electrified?(state, relation)
+  end
+
+  def tx_version({module, state}, row) do
+    module.tx_version(state, row)
   end
 end

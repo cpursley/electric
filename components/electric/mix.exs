@@ -67,7 +67,8 @@ defmodule Electric.MixProject do
       {:mint_web_socket, "~> 1.0"},
       {:mint, "~> 1.5"},
       {:pg_protocol, github: "electric-sql/pg_protocol"},
-      {:postgrex, "~> 0.17"}
+      {:postgrex, "~> 0.17"},
+      {:nimble_parsec, "~> 1.3"}
     ]
   end
 

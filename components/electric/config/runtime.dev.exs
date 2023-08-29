@@ -29,3 +29,9 @@ config :electric, Electric.Replication.Connectors,
 config :electric, Electric.Replication.OffsetStorage, file: "./offset_storage_data.dev.dat"
 
 config :electric, Electric.Postgres.Proxy, port: 65432
+
+# add this capture_mode configuration to the proxy to initialise then injector
+# in passthrough mode if you want to introspect the message flow between a
+# client and the database.
+# config :electric, Electric.Postgres.Proxy.Handler,
+#   injector: [capture_mode: Electric.Postgres.Proxy.Injector.Capture.Transparent]

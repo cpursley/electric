@@ -75,7 +75,7 @@ defmodule Electric.Replication.PostgresConnectorMng do
   def handle_continue(:init, %State{origin: origin} = state) do
     case initialize_postgres(state) do
       {:ok, state1} ->
-        :ok = PostgresConnector.start_children(state.config)
+        :ok = PostgresConnector.start_children(state1.config)
         Logger.info("successfully initialized connector #{inspect(origin)}")
 
         {:noreply, %State{state1 | state: :subscribe}, {:continue, :subscribe}}

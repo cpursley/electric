@@ -364,7 +364,7 @@ defmodule Electric.Postgres.Extension do
           end)
           |> Enum.reverse()
 
-        {:ok, versions}
+        {:ok, existing_migrations ++ versions}
       end)
     end)
   end

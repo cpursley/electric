@@ -57,7 +57,8 @@ config :logger, :console,
     # :remote_ip,
     :request_id,
     :sq_client,
-    :user_id
+    :user_id,
+    :proxy_session_id
   ]
 
 pg_server_port =
@@ -117,9 +118,10 @@ if config_env() == :prod do
   config :electric, Electric.Replication.OffsetStorage,
     file: System.get_env("OFFSET_STORAGE_FILE", default_offset_storage_path)
 
-  proxy_port = System.get_env("PG_PROXY_PORT", "65433") |> String.to_integer()
+  proxy_port = System.get_env("PG_PROXY_PORT", "65432") |> String.to_integer()
+  proxy_log_level = System.get_env("PG_PROXY_LOG_LEVEL", "info") |> String.to_existing_atom()
 
-  config :electric, Electric.Postgres.Proxy, port: proxy_port
+  config :electric, Electric.Postgres.Proxy, port: proxy_port, log_level: proxy_log_level
 else
   Code.require_file("runtime.#{config_env()}.exs", __DIR__)
 end

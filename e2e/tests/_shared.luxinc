@@ -13,7 +13,7 @@
         !make log_dev_env
 
     [newshell pg_1]
-        [invoke start_psql pg_1]
+        [invoke start_psql pg_1 5432]
         -$fail_pattern
         [timeout 2]
 
@@ -23,6 +23,12 @@
         -$fail_pattern
         ?START_REPLICATION SLOT
          [progress setup finished]
+
+    [newshell proxy_1]
+        [invoke start_proxy pg_1 electric_1 65432]
+        -$fail_pattern
+        [timeout 2]
+
 [endmacro]
 
 [macro teardown]

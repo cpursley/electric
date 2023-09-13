@@ -304,6 +304,7 @@ defmodule Electric.Postgres.Extension do
       Migrations.Migration_20230605141256_ElectrifyFunction,
       Migrations.Migration_20230715000000_UtilitiesTable,
       Migrations.Migration_20230814170745_ElectricDDL,
+      Migrations.Migration_20230913132415_AlterShadowTables,
       Migrations.Migration_20230918115714_DDLCommandUniqueConstraint
     ]
   end

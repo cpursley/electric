@@ -88,6 +88,8 @@ The Electric application is configured using environment variables. Everything t
 | `LOGICAL_PUBLISHER_PORT` | `5433`                      | Port number to use for reverse connections from Postgres.                                                                                                                                                                                                                                                                                                                                     |
 | `HTTP_PORT`              | `5133`                      | Port for HTTP connections. Includes client websocket connections on `/ws`, and other functions on `/api`                                                                                                                                                                                                                                                                                      |
 |                          |                             |                                                                                                                                                                                                                                                                                                                                                                                               |
+| `PG_PROXY_PORT`          | `65432`                     | Port number for connections to the [Postgres migration proxy](https://electric-sql.com/docs/usage/data-modelling/migrations).                                                                                                                                                                                                                                                                                                                                  |
+|                          |                             |                                                                                                                                                                                                                                                                                                                                                                                               |
 | `OFFSET_STORAGE_FILE`    | `./offset_storage_data.dat` | Path to the file storing the mapping between connected Postgres, Satellite instances, and an internal event log. Should be persisted between Electric restarts.                                                                                                                                                                                                                               |
 |                          |                             |                                                                                                                                                                                                                                                                                                                                                                                               |
 | `AUTH_MODE`              | `"secure"`                  | Authentication mode to use to authenticate Satellite clients. See below.                                                                                                                                                                                                                                                                                                                      |
@@ -129,7 +131,7 @@ See [our official docs](https://electric-sql.com/docs/usage/auth) to learn about
 
 Migrations are semi-automatically managed by the Postgres source. Once Postgres has been initialized by Electric (i.e. Electric had connected to it at least once), you will have two functions available in your SQL:
 
-1. `SELECT electric.migration_version(migration_version);`, where `migration_version` should be a monotonically growing value of your choice
+1. `CALL electric.migration_version(migration_version);`, where `migration_version` should be a monotonically growing value of your choice
 2. `CALL electric.electrify(table_name);`, where `table_name` is a string containing a schema-qualified name of the table you want electrified.
 
 When you want to do a migration (i.e. create a table), you need to run the `electric.migration_version` at the beginning of the transaction, and `electric.electrify` for every new table. Electrified tables and changes to them
@@ -137,7 +139,7 @@ will reach the clients and be created there as well. For example:
 
 ```sql
 BEGIN;
-SELECT electric.migration_version('1_version');
+CALL electric.migration_version('1_version');
 CREATE TABLE public.mtable1 (id uuid PRIMARY KEY);
 CALL electric.electrify('public.mtable1');
 COMMIT;

@@ -16,10 +16,12 @@ default_offset_storage_path = "./offset_storage_data.dat"
 
 ###
 
+log_level = System.get_env("LOG_LEVEL", default_log_level) |> String.to_existing_atom()
+
 config :logger,
   handle_otp_reports: true,
   handle_sasl_reports: false,
-  level: System.get_env("LOG_LEVEL", default_log_level) |> String.to_existing_atom()
+  level: log_level
 
 config :logger, :console,
   format: "$time $metadata[$level] $message\n",
@@ -99,6 +101,8 @@ if config_env() == :prod do
     System.get_env("LOGICAL_PUBLISHER_HOST") ||
       raise("Env variable LOGICAL_PUBLISHER_HOST is not set")
 
+  proxy_port = System.get_env("PG_PROXY_PORT", "65432") |> String.to_integer()
+
   connectors = [
     {"postgres_1",
      producer: Electric.Replication.Postgres.LogicalReplicationProducer,
@@ -110,6 +114,14 @@ if config_env() == :prod do
          dbname: "electric",
          connect_timeout: postgresql_connection[:timeout]
        ]
+     ],
+     proxy: [
+       # listen opts are ThousandIsland.options()
+       # https://hexdocs.pm/thousand_island/ThousandIsland.html#t:options/0
+       listen: [
+         port: proxy_port
+       ],
+       log_level: log_level
      ]}
   ]
 
@@ -117,11 +129,6 @@ if config_env() == :prod do
 
   config :electric, Electric.Replication.OffsetStorage,
     file: System.get_env("OFFSET_STORAGE_FILE", default_offset_storage_path)
-
-  proxy_port = System.get_env("PG_PROXY_PORT", "65432") |> String.to_integer()
-  proxy_log_level = System.get_env("PG_PROXY_LOG_LEVEL", "info") |> String.to_existing_atom()
-
-  config :electric, Electric.Postgres.Proxy, port: proxy_port, log_level: proxy_log_level
 else
   Code.require_file("runtime.#{config_env()}.exs", __DIR__)
 end

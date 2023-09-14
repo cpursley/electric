@@ -20,5 +20,3 @@ config :electric, Electric.Satellite.Auth, provider: {Auth.Secure, auth_config}
 config :electric, Electric.Replication.OffsetStorage, file: "./offset_storage_data.test.dat"
 
 config :electric, disable_listeners: true
-
-config :electric, Electric.Postgres.Proxy, port: 65431

@@ -185,3 +185,14 @@ defimpl QueryAnalyser, for: PgQuery.DeleteStmt do
     %{analysis | action: :delete}
   end
 end
+
+defimpl QueryAnalyser, for: PgQuery.DoStmt do
+  def analyse(_stmt, analysis, _opts) do
+    %{
+      analysis
+      | action: :do,
+        allowed?: false,
+        errors: [{:unsupported_query, "DO ... END"} | analysis.errors]
+    }
+  end
+end

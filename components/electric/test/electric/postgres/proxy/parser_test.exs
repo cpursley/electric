@@ -545,6 +545,97 @@ defmodule Electric.Postgres.Proxy.ParserTest do
                )
     end
 
+    test "ALTER TABLE ...; CREATE INDEX", cxt do
+      query1 =
+        String.trim("""
+        ALTER TABLE "truths" ADD COLUMN     "category" TEXT NOT NULL,
+         ADD COLUMN     "condition" TEXT NOT NULL,
+         ADD COLUMN     "description" TEXT NOT NULL,
+         ADD COLUMN     "electric_user_id" TEXT NOT NULL,
+         ADD COLUMN     "price" INTEGER NOT NULL,
+         ADD COLUMN     "timestamp" SMALLINT NOT NULL
+        """)
+
+      query2 =
+        String.trim("""
+        -- CreateIndex
+        CREATE INDEX "Items_timestamp_idx" ON "truths"("timestamp")
+        """)
+
+      query3 =
+        String.trim("""
+        ALTER TABLE "socks" ADD COLUMN     "category" TEXT NOT NULL,
+         ADD COLUMN     "condition" TEXT NOT NULL
+        """)
+
+      query = query1 <> ";\n\n" <> query2 <> ";\n\n" <> query3 <> ";\n"
+
+      assert [
+               %QueryAnalysis{
+                 action: {:alter, "table"},
+                 table: {"public", "truths"},
+                 electrified?: true,
+                 allowed?: true,
+                 capture?: true,
+                 ast: %{},
+                 sql: ^query1
+               },
+               %QueryAnalysis{
+                 action: {:create, "index"},
+                 table: {"public", "truths"},
+                 electrified?: true,
+                 allowed?: true,
+                 capture?: true,
+                 ast: %{},
+                 sql: ^query2
+               },
+               %QueryAnalysis{
+                 action: {:alter, "table"},
+                 table: {"public", "socks"},
+                 electrified?: false,
+                 allowed?: true,
+                 capture?: false,
+                 ast: %{},
+                 sql: ^query3
+               }
+             ] = Parser.analyse(query, loader: cxt.loader)
+    end
+
+    test "DO .. END", cxt do
+      # these queries come in as a `DoStmt` with a string node containing the query between the `$$`
+      # and unless the language is `SQL` we can't parse it... so just reject it
+      query =
+        String.trim("""
+        DO $$ 
+        DECLARE 
+          schema_exists BOOLEAN;
+        BEGIN
+          SELECT EXISTS (
+            SELECT 1
+            FROM information_schema.schemata
+            WHERE schema_name = 'electric'
+          ) INTO schema_exists;
+
+          IF schema_exists THEN
+            CALL electric.electrify('public."Items"');
+          END IF;
+        END $$
+        """)
+
+      assert [
+               %QueryAnalysis{
+                 action: :do,
+                 table: nil,
+                 electrified?: false,
+                 allowed?: false,
+                 capture?: false,
+                 ast: %{},
+                 sql: ^query,
+                 errors: [unsupported_query: "DO ... END"]
+               }
+             ] = Parser.analyse(query <> ";\n", loader: cxt.loader)
+    end
+
     test "ELECTRIC...", cxt do
       {:error, %{cursorpos: cursorpos}} =
         PgQuery.parse(

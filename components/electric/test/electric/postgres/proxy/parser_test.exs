@@ -2,6 +2,8 @@ defmodule Electric.Postgres.Proxy.ParserTest do
   use ExUnit.Case, async: true
 
   alias Electric.Postgres.Proxy.Parser
+  alias Electric.Postgres.MockSchemaLoader
+  alias Electric.Postgres.Extension.SchemaLoader
 
   @whitespace [" ", "\n", "\t"]
   describe "tag matching" do
@@ -180,6 +182,168 @@ defmodule Electric.Postgres.Proxy.ParserTest do
 
     test "DELETE" do
       assert {:error, "Not an INSERT statement" <> _} = Parser.column_map("DELETE FROM fish")
+    end
+  end
+
+  describe "analyse/2" do
+    setup do
+      migrations = [
+        {"0001",
+         [
+           "CREATE TABLE public.truths (id uuid PRIMARY KEY, value text)",
+           "CREATE INDEX truths_idx ON public.truths (value)"
+         ]}
+      ]
+
+      spec = MockSchemaLoader.backend_spec(migrations: migrations)
+
+      {:ok, loader} =
+        SchemaLoader.connect(spec, [])
+
+      {:ok, loader: loader}
+    end
+
+    test "BEGIN; COMMIT", cxt do
+      assert [
+               %Parser.Analysis{
+                 action: :begin,
+                 table: nil,
+                 electrified?: false,
+                 allowed?: true,
+                 ast: %{}
+               },
+               %Parser.Analysis{
+                 action: :commit,
+                 table: nil,
+                 electrified?: false,
+                 allowed?: true,
+                 ast: %{}
+               }
+             ] = Parser.analyse("BEGIN; COMMIT;", cxt.loader)
+    end
+
+    test "CREATE TABLE", cxt do
+      assert [
+               %Parser.Analysis{
+                 action: {:create, "table"},
+                 table: {"public", "balloons"},
+                 electrified?: false,
+                 allowed?: true,
+                 capture: false,
+                 ast: %{}
+               }
+             ] =
+               Parser.analyse(
+                 "CREATE TABLE public.balloons (id uuid PRIMARY KEY, value text);",
+                 cxt.loader
+               )
+    end
+
+    test "ALTER TABLE .. ADD COLUMN", cxt do
+      assert [
+               %Parser.Analysis{
+                 action: {:alter, "table"},
+                 table: {"public", "truths"},
+                 electrified?: true,
+                 allowed?: true,
+                 capture: true,
+                 ast: %{}
+               }
+             ] = Parser.analyse("ALTER TABLE public.truths ADD COLUMN clowns text;", cxt.loader)
+
+      assert [
+               %Parser.Analysis{
+                 action: {:alter, "table"},
+                 table: {"public", "truths"},
+                 electrified?: true,
+                 allowed?: false,
+                 ast: %{},
+                 errors: [invalid_column_type: "cidr"]
+               }
+             ] = Parser.analyse("ALTER TABLE public.truths ADD COLUMN ip cidr;", cxt.loader)
+
+      assert [
+               %Parser.Analysis{
+                 action: {:alter, "table"},
+                 table: {"public", "truths"},
+                 electrified?: true,
+                 allowed?: true,
+                 capture: true,
+                 ast: %{}
+               },
+               %Parser.Analysis{
+                 action: {:alter, "table"},
+                 table: {"public", "truths"},
+                 electrified?: true,
+                 allowed?: false,
+                 ast: %{},
+                 errors: [invalid_column_type: "cidr"]
+               }
+             ] =
+               Parser.analyse(
+                 "ALTER TABLE public.truths ADD COLUMN clowns text, ADD COLUMN ip cidr;",
+                 cxt.loader
+               )
+
+      assert [
+               %Parser.Analysis{
+                 action: {:alter, "table"},
+                 table: {"public", "socks"},
+                 electrified?: false,
+                 allowed?: true,
+                 capture: false,
+                 ast: %{},
+                 errors: []
+               }
+             ] = Parser.analyse("ALTER TABLE public.socks ADD COLUMN ip cidr;", cxt.loader)
+    end
+
+    test "ALTER TABLE .. DROP COLUMN", cxt do
+      assert [
+               %Parser.Analysis{
+                 action: {:alter, "table"},
+                 table: {"public", "truths"},
+                 electrified?: true,
+                 allowed?: false,
+                 ast: %{},
+                 errors: [drop_column: "value"]
+               }
+             ] = Parser.analyse("ALTER TABLE public.truths DROP COLUMN value;", cxt.loader)
+
+      assert [
+               %Parser.Analysis{
+                 action: {:alter, "table"},
+                 table: {"public", "socks"},
+                 electrified?: false,
+                 allowed?: true,
+                 ast: %{},
+                 errors: []
+               },
+               %Parser.Analysis{
+                 action: {:alter, "table"},
+                 table: {"public", "socks"},
+                 electrified?: false,
+                 allowed?: true,
+                 ast: %{},
+                 errors: []
+               }
+             ] =
+               Parser.analyse(
+                 "ALTER TABLE public.socks DROP COLUMN value, DROP COLUMN something;",
+                 cxt.loader
+               )
+    end
+
+    test "ELECTRIC...", cxt do
+      PgQuery.parse(
+        "ALTER TABLE public.socks DROP COLUMN value, DROP COLUMN something; ALTER TABLE something ENABLE ELECTRIC"
+      )
+      |> dbg
+
+      Parser.analyse(
+        "ALTER TABLE public.socks DROP COLUMN value, DROP COLUMN something; ALTER TABLE something ENABLE ELECTRIC",
+        cxt.loader
+      )
     end
   end
 end

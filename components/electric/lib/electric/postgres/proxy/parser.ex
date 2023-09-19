@@ -37,8 +37,22 @@ end
 
 defmodule Electric.Postgres.Proxy.Parser do
   alias Electric.Postgres.Proxy.NameParser
+  alias Electric.Postgres.Proxy.Injector
+  alias Electric.Postgres.Extension.SchemaLoader
 
   import __MODULE__.Macros
+
+  defmodule Analysis do
+    defstruct [
+      :action,
+      :table,
+      :ast,
+      electrified?: false,
+      allowed?: true,
+      capture: false,
+      errors: []
+    ]
+  end
 
   @default_schema "public"
   @wspc ~c"\t\n\r "
@@ -49,8 +63,7 @@ defmodule Electric.Postgres.Proxy.Parser do
     end
   end
 
-  @spec table_name(binary() | struct(), Keyword.t()) ::
-          {:ok, {String.t(), String.t()}} | {:error, term()}
+  @spec table_name(binary() | struct(), Keyword.t()) :: {String.t(), String.t()} | nil | no_return
   def table_name(query, opts \\ [])
 
   def table_name(query, opts) when is_binary(query) do
@@ -59,24 +72,8 @@ defmodule Electric.Postgres.Proxy.Parser do
     end
   end
 
-  def table_name(%PgQuery.InsertStmt{} = stmt, opts) do
-    %{schemaname: s, relname: n} = stmt.relation
-    {:ok, {blank(s, opts), n}}
-  end
-
-  def table_name(%PgQuery.AlterTableStmt{} = stmt, opts) do
-    %{schemaname: s, relname: n} = stmt.relation
-    {:ok, {blank(s, opts), n}}
-  end
-
-  def table_name(%PgQuery.IndexStmt{} = stmt, opts) do
-    %{schemaname: s, relname: n} = stmt.relation
-    {:ok, {blank(s, opts), n}}
-  end
-
-  def table_name(%PgQuery.RenameStmt{} = stmt, opts) do
-    %{schemaname: s, relname: n} = stmt.relation
-    {:ok, {blank(s, opts), n}}
+  def table_name(%{relation: %{schemaname: s, relname: n}}, opts) do
+    {blank(s, opts), n}
   end
 
   # TODO: drop table supports a list of table names, but let's not support that for the moment
@@ -84,19 +81,16 @@ defmodule Electric.Postgres.Proxy.Parser do
     %{node: {:list, %{items: items}}} = object
     names = Enum.map(items, fn %{node: {:string, %{sval: n}}} -> n end)
 
-    name =
-      case names do
-        [_tablespace, schema, table] ->
-          {schema, table}
+    case names do
+      [_tablespace, schema, table] ->
+        {schema, table}
 
-        [schema, table] ->
-          {schema, table}
+      [schema, table] ->
+        {schema, table}
 
-        [table] ->
-          {blank(nil, opts), table}
-      end
-
-    {:ok, name}
+      [table] ->
+        {blank(nil, opts), table}
+    end
   end
 
   def table_name(
@@ -107,19 +101,19 @@ defmodule Electric.Postgres.Proxy.Parser do
       {"electric", "electrify"} ->
         case Enum.map(funccall.args, &string_node_val/1) do
           [a1, a2] ->
-            {:ok, {a1, a2}}
+            {a1, a2}
 
           [a1] ->
-            NameParser.parse(a1, opts)
+            NameParser.parse!(a1, opts)
         end
 
       _ ->
-        {:ok, {blank(nil, opts), nil}}
+        nil
     end
   end
 
-  def table_name(_stmt, opts) do
-    {:ok, {blank(nil, opts), nil}}
+  def table_name(_stmt, _opts) do
+    nil
   end
 
   defp string_node_val(%PgQuery.Node{node: {:string, %PgQuery.String{sval: sval}}}), do: sval
@@ -407,8 +401,95 @@ defmodule Electric.Postgres.Proxy.Parser do
   end
 
   defp modification_action(%{subtype: :AT_AddColumn}), do: :add
+  defp modification_action(%{subtype: :AT_DropColumn}), do: :drop
+  defp modification_action(_), do: :modify
 
   defp column_definition(%{node: {:column_def, def}}) do
     [column: def.colname, type: Electric.Postgres.Dialect.Postgresql.map_type(def.type_name)]
   end
+
+  defp column_definition(nil) do
+    []
+  end
+
+  def analyse(query, loader) when is_binary(query) do
+    query
+    |> Electric.Postgres.parse!()
+    |> Enum.flat_map(&analyse_stmt(&1, loader))
+  end
+
+  defp analyse_stmt(stmt, loader) do
+    table = table_name(stmt)
+
+    analysis = %Analysis{
+      table: table,
+      electrified?: is_electrified?(table, loader),
+      ast: stmt
+    }
+
+    analyse_stmt(stmt, analysis, loader)
+  end
+
+  defp analyse_stmt(%PgQuery.AlterTableStmt{} = stmt, analysis, loader) do
+    stmt.cmds
+    |> Enum.map(&unwrap_node/1)
+    |> Enum.map(&analyse_alter_table_cmd(&1, %{analysis | action: {:alter, "table"}}, loader))
+  end
+
+  defp analyse_stmt(%PgQuery.TransactionStmt{} = stmt, analysis, loader) do
+    kind =
+      case stmt.kind do
+        :TRANS_STMT_BEGIN -> :begin
+        :TRANS_STMT_COMMIT -> :commit
+      end
+
+    [%{analysis | action: kind}]
+  end
+
+  defp analyse_stmt(%PgQuery.CreateStmt{}, analysis, loader) do
+    [%{analysis | action: {:create, "table"}}]
+  end
+
+  defp analyse_alter_table_cmd(cmd, %{electrified?: false} = analysis, loader) do
+    analysis
+  end
+
+  defp analyse_alter_table_cmd(%{subtype: :AT_AddColumn} = cmd, analysis, _loader) do
+    column_def = unwrap_node(cmd.def)
+
+    case check_column_type(column_def) do
+      :ok ->
+        %{analysis | capture: true}
+
+      {:error, reason} ->
+        %{analysis | allowed?: false, errors: [reason | analysis.errors]}
+    end
+  end
+
+  defp analyse_alter_table_cmd(%{subtype: :AT_DropColumn} = cmd, analysis, _loader) do
+    %{analysis | allowed?: false, errors: [{:drop_column, cmd.name} | analysis.errors]}
+  end
+
+  defp is_electrified?(nil, _loader) do
+    false
+  end
+
+  defp is_electrified?(table, loader) do
+    {:ok, electrified?} = SchemaLoader.table_electrified?(loader, table)
+    electrified?
+  end
+
+  @valid_types for t <- Electric.Satellite.Serialization.supported_pg_types(), do: to_string(t)
+
+  defp check_column_type(%PgQuery.ColumnDef{} = coldef) do
+    %{name: type} = Electric.Postgres.Schema.AST.map(coldef.type_name)
+
+    if type in @valid_types do
+      :ok
+    else
+      {:error, {:invalid_column_type, type}}
+    end
+  end
+
+  defp unwrap_node(%PgQuery.Node{node: {_type, node}}), do: node
 end
